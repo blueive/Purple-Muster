@@ -1,1 +1,80 @@
+name: Sync memories
 
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    if: startsWith(github.event.issue.title, '[MEMORY]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add memory
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from datetime import datetime, timezone
+
+          path = "data/memories.json"
+
+          try:
+              with open(path, "r", encoding="utf-8") as f:
+                  memories = json.load(f)
+          except:
+              memories = []
+
+          body = os.environ.get("ISSUE_BODY", "")
+
+          def get_field(name):
+              pattern = rf"### {re.escape(name)}\s*\n(.*?)(?=\n### |\Z)"
+              match = re.search(pattern, body, re.S)
+              return match.group(1).strip() if match else ""
+
+          user = get_field("الاسم")
+          platform = get_field("المنصة")
+          message = get_field("الرسالة")
+          song = get_field("الأغنية")
+
+          memory = {
+              "id": int(datetime.now(timezone.utc).timestamp() * 1000),
+              "user": user or "@فايوليت",
+              "platform": platform or "Instagram",
+              "message": message or "تركتُ أغنية في صندوق الذكرى.",
+              "song": song,
+              "image": ""
+          }
+
+          memories.insert(0, memory)
+
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(memories, f, ensure_ascii=False, indent=2)
+
+          PY
+
+      - name: Commit memories
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/memories.json
+          git commit -m "Add new memory" || exit 0
+          git push
+
+      - name: Close issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close ${{ github.event.issue.number }} \
+            --repo "${{ github.repository }}"
